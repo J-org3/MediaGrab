@@ -6,7 +6,7 @@
 
 # MediaGrab
 
-A small GUI for [yt-dlp](https://github.com/yt-dlp/yt-dlp) by **J-org3**:
+A simple, Multi-Platform (YouTube, TikTok, Instagram, X (Twitter), Twitch, Facebook, SoundCloud...) GUI for [yt-dlp](https://github.com/yt-dlp/yt-dlp) by **J-org3**:
 paste a link, pick video or audio, pick a save folder, hit Download. Every
 finished download lands in the gallery on the right — split into separate
 **Videos** / **Audio** sections, file-manager-style rows — double-click to
