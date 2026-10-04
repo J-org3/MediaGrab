@@ -47,7 +47,7 @@ Every release is built automatically by
 runners — that workflow is the reference build. To build locally instead:
 
 ```bash
-git clone <this-repo-url>
+git clone https://github.com/J-org3/MediaGrab
 cd mediagrab
 ```
 
