@@ -1,0 +1,140 @@
+name: Build and release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+  schedule:
+    # Every Monday 06:00 UTC: rebuilds against whatever yt-dlp is current
+    # that week, so the published binary doesn't silently rot as YouTube
+    # changes its extraction tricks. Publishes to the rolling "auto-latest"
+    # pre-release instead of touching your versioned v* releases.
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Always build against the newest yt-dlp
+        # requirements.txt pins a known-good version for reproducible local
+        # builds, but every CI build (scheduled or tagged) forces the
+        # latest release on top of it - that's the actual fix for YouTube
+        # breaking older extractors.
+        run: pip install --upgrade yt-dlp
+
+      - name: Fetch ffmpeg (Windows, static LGPL build)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path assets/ffmpeg/windows | Out-Null
+          Invoke-WebRequest -Uri "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl.zip" -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg_extract
+          $bin = Get-ChildItem -Recurse -Path ffmpeg_extract -Filter "bin" | Select-Object -First 1
+          Copy-Item "$($bin.FullName)/ffmpeg.exe" assets/ffmpeg/windows/
+          Copy-Item "$($bin.FullName)/ffprobe.exe" assets/ffmpeg/windows/
+
+      - name: Build MediaGrab.exe
+        run: >
+          pyinstaller --name MediaGrab --onefile --windowed
+          --icon assets/logo.ico --add-data "assets;assets"
+          --collect-all yt_dlp --noconfirm main.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MediaGrab-windows
+          path: dist/MediaGrab.exe
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: System dependencies (tkinter)
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Always build against the newest yt-dlp
+        run: pip install --upgrade yt-dlp
+
+      - name: Fetch ffmpeg (Linux, static LGPL build)
+        run: |
+          mkdir -p assets/ffmpeg/linux
+          curl -L -o ffmpeg.tar.xz "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-linux64-lgpl.tar.xz"
+          mkdir ffmpeg_extract
+          tar -xf ffmpeg.tar.xz -C ffmpeg_extract
+          BIN_DIR=$(find ffmpeg_extract -type d -name bin | head -n1)
+          cp "$BIN_DIR/ffmpeg" assets/ffmpeg/linux/
+          cp "$BIN_DIR/ffprobe" assets/ffmpeg/linux/
+          chmod +x assets/ffmpeg/linux/ffmpeg assets/ffmpeg/linux/ffprobe
+
+      - name: Build MediaGrab binary
+        run: >
+          pyinstaller --name MediaGrab --onefile
+          --add-data "assets:assets" --collect-all yt_dlp
+          --noconfirm main.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MediaGrab-linux
+          path: dist/MediaGrab
+
+  release:
+    needs: [build-windows, build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Rename artifacts for release
+        run: |
+          mkdir -p release
+          cp artifacts/MediaGrab-windows/MediaGrab.exe release/MediaGrab-windows.exe
+          cp artifacts/MediaGrab-linux/MediaGrab release/MediaGrab-linux
+          chmod +x release/MediaGrab-linux
+
+      - name: Decide which release to publish to
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=auto-latest" >> "$GITHUB_OUTPUT"
+            echo "name=Auto-updated build ($(date -u +%Y-%m-%d))" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "name=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.name }}
+          prerelease: ${{ steps.tag.outputs.prerelease }}
+          files: |
+            release/MediaGrab-windows.exe
+            release/MediaGrab-linux
+          generate_release_notes: true

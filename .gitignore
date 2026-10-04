@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+venv/
+build/
+dist/
+*.spec
+assets/ffmpeg/
+history.json
+out/
+MediaGrab
+MediaGrab.exe
+ffmpeg_extract/
+ffmpeg_dl.zip
+ffmpeg.zip
+ffmpeg.tar.xz
+ffmpeg_dl.tar.xz
